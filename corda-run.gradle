@@ -1,0 +1,161 @@
+buildscript {
+    repositories {
+        jcenter()
+    }
+
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath "net.corda.plugins:cordapp:$corda_gradle_plugins_version"
+        classpath "net.corda.plugins:cordformation:${corda_gradle_plugins_version}"
+    }
+
+    ext {
+        configFile = "config/test/corda/config.conf"
+        devMode = true
+    }
+}
+
+def RUN_CORDA_GROUP = "corda"
+
+apply plugin: 'kotlin'
+apply plugin: 'net.corda.plugins.cordapp'
+apply plugin: 'net.corda.plugins.cordformation'
+
+task deployNodes(type: net.corda.plugins.Cordform, group: RUN_CORDA_GROUP) {
+    dependsOn 'cordapp:jar'
+    directory "$rootDir/build/nodes"
+
+    node {
+        name "O=Notary,L=London,C=GB"
+        notary = [validating: false]
+        p2pPort 10101
+        rpcSettings {
+            address("localhost:10102")
+            adminAddress("localhost:10103")
+        }
+        cordapps = [
+            "com.luxoft.poc.supplychain:cordapp:0.1",
+            "$corda_release_group:corda-finance:$corda_release_version"
+        ]
+        rpcUsers = [[user: "user1", "password": "test", "permissions": ["ALL"]]]
+    }
+    
+    node {
+        name "O=Mobility Service,L=London,C=GB"
+        p2pPort 10201
+        rpcSettings {
+            address("localhost:10202")
+            adminAddress("localhost:10203")
+        }
+        cordapps = [
+            "com.luxoft.poc.supplychain:cordapp:0.1",
+            "$corda_release_group:corda-finance:$corda_release_version"
+        ]
+        rpcUsers = [[user: "user1", "password": "test", "permissions": ["ALL"]]]
+    }
+    
+    node {
+        name "O=Bank,L=London,C=GB"
+        p2pPort 10301
+        rpcSettings {
+            address("localhost:10302")
+            adminAddress("localhost:10303")
+        }
+        cordapps = [
+            "com.luxoft.poc.supplychain:cordapp:0.1",
+            "$corda_release_group:corda-finance:$corda_release_version"
+        ]
+        rpcUsers = [[user: "user1", "password": "test", "permissions": ["ALL"]]]
+    }
+    
+    node {
+        name "O=CAR,L=London,C=GB"
+        p2pPort 10401
+        rpcSettings {
+            address("localhost:10402")
+            adminAddress("localhost:10403")
+        }
+        cordapps = [
+            "com.luxoft.poc.supplychain:cordapp:0.1",
+            "$corda_release_group:corda-finance:$corda_release_version"
+        ]
+        rpcUsers = [[user: "user1", "password": "test", "permissions": ["ALL"]]]
+    }
+    
+    node {
+        name "O=TAXI,L=London,C=GB"
+        p2pPort 10501
+        rpcSettings {
+            address("localhost:10502")
+            adminAddress("localhost:10503")
+        }
+        cordapps = [
+            "com.luxoft.poc.supplychain:cordapp:0.1",
+            "$corda_release_group:corda-finance:$corda_release_version"
+        ]
+        rpcUsers = [[user: "user1", "password": "test", "permissions": ["ALL"]]]
+    }
+    
+    node {
+        name "O=PLANE,L=London,C=GB"
+        p2pPort 10601
+        rpcSettings {
+            address("localhost:10602")
+            adminAddress("localhost:10603")
+        }
+        cordapps = [
+                "com.luxoft.blockchainlab:cordapp:0.1",
+                "$corda_release_group:corda-finance:$corda_release_version",
+//                "com.github.Luxoft.cordentity:cordapp:$cordentity_version",
+//                "com.github.Luxoft.cordentity:cordapp-contracts-states:$cordentity_version"
+        ]
+        rpcUsers = [[user: "user1", "password": "test", "permissions": ["ALL"]]]
+    }
+}
+
+
+deployNodes.initializeConfiguration()
+def cordaNodes = deployNodes.nodes
+
+task deployCordappToNodes(group: RUN_CORDA_GROUP) {
+    doLast {
+        for(nodeDir in cordaNodes*.nodeDir) {
+            copy {
+                from('devops/Dockerfile-corda')
+                into(nodeDir)
+            }
+        }
+    }
+}
+
+task deployConfigsToNodes(group: RUN_CORDA_GROUP) {
+    // mapping NodeName -> indy config file, e.g. "Bank" -> "bank"
+    def indyConfigMapping = [
+    ]
+
+    doLast {
+        indyConfigMapping.each { nodeName, configName ->
+            def node = cordaNodes.find { it.nodeDir.name == nodeName }
+
+            copy {
+                from("config/test/indyconfig")
+                into("${node.nodeDir}/indyconfig")
+                include("${configName}.properties")
+                rename("${configName}.properties", 'indy.properties')
+            }
+        }
+    }
+}
+
+task deployCordaNetwork(group: RUN_CORDA_GROUP) {
+    dependsOn deployNodes
+    dependsOn deployCordappToNodes
+    dependsOn deployConfigsToNodes
+}
+
+task runNodes(type: Exec, group: RUN_CORDA_GROUP) {
+    dependsOn deployCordaNetwork
+
+    workingDir "$rootDir/build/nodes"
+    executable "./runnodes"
+}
